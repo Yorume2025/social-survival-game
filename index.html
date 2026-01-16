@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>校園生存演算法 v2.0：解碼與閃避</title>
+    <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-purple: #bd00ff;
+            --neon-red: #ff003c;
+            --neon-green: #00ff94;
+            --bg-dark: #050505;
+            --panel-bg: #111;
+            --text-color: #e0e0e0;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-color);
+            font-family: 'Segoe UI', 'PingFang TC', 'Microsoft JhengHei', monospace;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-image: radial-gradient(circle at center, #1a1a1a 0%, #000 70%);
+        }
+
+        #game-container {
+            width: 90%;
+            max-width: 700px;
+            background: var(--panel-bg);
+            border: 2px solid var(--neon-blue);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 0 40px rgba(0, 243, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 掃描線特效 */
+        #game-container::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        /* 頂部狀態列 */
+        .hud-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 15px;
+            position: relative;
+            z-index: 3;
+        }
+
+        .title-label { font-weight: bold; letter-spacing: 1px; color: var(--neon-blue); text-shadow: 0 0 5px var(--neon-blue); }
+        
+        .mp-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .mp-label { font-family: monospace; color: var(--neon-green); }
+
+        .mp-bar-bg {
+            width: 200px;
+            height: 16px;
+            background: #222;
+            border: 1px solid #555;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        #mp-fill {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, var(--neon-red), var(--neon-green));
+            transition: width 0.5s cubic-bezier(0.4, 0.0, 0.2, 1), background 0.5s ease;
+        }
+
+        /* 顯示區域 */
+        #display-area { min-height: 250px; margin-bottom: 30px; position: relative; z-index: 3; }
+        .system-tag { color: var(--neon-blue); font-family: monospace; font-size: 1rem; margin-bottom: 15px; display: flex; align-items: center; }
+        .system-tag::before { content: '[ '; color: #555; }
+        .system-tag::after { content: ' ]'; color: #555; }
+        
+        .scene-text { font-size: 1.2rem; line-height: 1.7; color: #fff; margin-bottom: 20px; }
+        .scene-text strong { color: var(--neon-purple); }
+        
+        .consequence { 
+            font-size: 1rem; 
+            color: #aaa; 
+            margin-top: 15px; 
+            padding: 10px; 
+            border-left: 3px solid var(--neon-green);
+            background: rgba(0, 255, 148, 0.05);
+        }
+
+        /* 按鈕區 */
+        .btn-grid { display: grid; grid-template-columns: 1fr; gap: 15px; position: relative; z-index: 3; }
+        
+        button {
+            background: rgba(26, 26, 26, 0.8);
+            border: 1px solid var(--neon-blue);
+            color: var(--text-color);
+            padding: 16px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: left;
+            font-size: 1.05rem;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+            font-family: monospace;
+        }
+
+        button:hover {
+            background: rgba(0, 243, 255, 0.15);
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+            transform: translateX(5px);
+        }
+
+        button.danger { border-color: var(--neon-red); color: var(--neon-red); }
+        button.danger:hover { background: rgba(255, 0, 60, 0.15); box-shadow: 0 0 15px rgba(255, 0, 60, 0.3); }
+        
+        button.menu-btn { border-color: var(--neon-purple); color: var(--neon-purple); text-align: center; font-size: 1.2rem; font-weight: bold;}
+        button.menu-btn:hover { background: rgba(189, 0, 255, 0.15); box-shadow: 0 0 15px rgba(189, 0, 255, 0.3); transform: scale(1.02); }
+
+        /* 成就列表 */
+        .achievement-list { margin-top: 20px; text-align: left; }
+        .achievement-item { display: inline-block; background: rgba(0, 255, 148, 0.1); border: 1px solid var(--neon-green); padding: 5px 10px; border-radius: 4px; margin: 5px; font-size: 0.9rem; color: var(--neon-green); }
+        .counselor-note { margin-top: 20px; font-size: 0.95rem; color: #aaa; border-top: 1px dashed #555; padding-top: 15px; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div class="hud-bar">
+        <div class="title-label">PROTOCOL: SOCIAL SURVIVAL</div>
+        <div class="mp-container">
+            <span class="mp-label">MENTAL POWER (MP): <span id="mp-value">100</span>%</span>
+            <div class="mp-bar-bg"><div id="mp-fill"></div></div>
+        </div>
+    </div>
+
+    <div id="display-area">
+        <div class="system-tag" id="sys-tag">SYSTEM READY</div>
+        <div class="scene-text" id="scene-text">
+            歡迎進入社交演算法模擬系統 v2.0。<br>請選擇今日要載入的訓練模組：
+        </div>
+        <div class="consequence" id="cons-text" style="display:none;"></div>
+        <div id="achievement-area" style="display:none;"></div>
+    </div>
+
+    <div class="btn-grid" id="action-btns">
+        <button class="menu-btn" onclick="startHallwayScenario()">載入模組 A：【走廊生存戰】</button>
+        <button class="menu-btn" onclick="startLunchScenario()">載入模組 B：【午餐平衡戰】</button>
+    </div>
+</div>
+
+<script>
+    let mp = 100;
+    let lunchFlags = { stealthWash: false, energySaved: false, stoic: false }; // 用於追蹤午餐成就
+    
+    const sysTag = document.getElementById('sys-tag');
+    const sceneText = document.getElementById('scene-text');
+    const consText = document.getElementById('cons-text');
+    const btnGrid = document.getElementById('action-btns');
+    const mpValue = document.getElementById('mp-value');
+    const mpFill = document.getElementById('mp-fill');
+    const achievementArea = document.getElementById('achievement-area');
+
+    function updateMP(change) {
+        mp = Math.min(100, Math.max(0, mp + change));
+        mpValue.innerText = mp;
+        mpFill.style.width = mp + '%';
+        
+        if(mp > 60) mpFill.style.background = 'linear-gradient(90deg, var(--neon-red), var(--neon-green))';
+        else if(mp > 30) mpFill.style.background = 'linear-gradient(90deg, var(--neon-red), #bd00ff)';
+        else mpFill.style.background = 'var(--neon-red)';
+    }
+
+    function setScene(tag, scene, cons = "") {
+        sysTag.innerText = "SYSTEM MSG: " + tag;
+        sceneText.innerHTML = scene;
+        if (cons) {
+            consText.style.display = "block";
+            consText.innerHTML = cons;
+        } else {
+            consText.style.display = "none";
+        }
+        achievementArea.style.display = "none";
+    }
+
+    function renderButtons(options) {
+        btnGrid.innerHTML = '';
+        options.forEach(opt => {
+            const btn = document.createElement('button');
+            btn.innerHTML = opt.text;
+            if(opt.danger) btn.className = 'danger';
+            if(opt.menu) btn.className = 'menu-btn';
+            btn.onclick = opt.action;
+            btnGrid.appendChild(btn);
+        });
+    }
+    
+    function resetGame() {
+        mp = 100;
+        updateMP(0);
+        lunchFlags = { stealthWash: false, energySaved: false, stoic: false };
+        setScene("SYSTEM READY", "歡迎進入社交演算法模擬系統 v2.0。<br>請選擇今日要載入的訓練模組：");
+        renderButtons([
+            { text: "載入模組 A：【走廊生存戰】", menu: true, action: () => startHallwayScenario() },
+            { text: "載入模組 B：【午餐平衡戰】", menu: true, action: () => startLunchScenario() }
+        ]);
+    }
+
+    // ==========================================
+    // 模組 A：走廊生存戰 (原始內容)
+    // ==========================================
+    function startHallwayScenario() {
+        updateMP(0);
+        setScene("偵測到目標物 (距離 10 公尺)", "場景：窄窄的走廊，前方出現「噪音龍捲風」及其朋友圈。<br>目標：穿過走廊，MP 保持在 90 以上。", "");
+        renderButtons([
+            { text: "【戰術繞道】轉身走操場或另一側樓梯", action: () => hallwayA('reroute') },
+            { text: "【壁虎模式】肩膀貼牆，縮小身體寬度", action: () => hallwayA('wall') },
+            { text: "【待機防禦】假裝看公佈欄，等對方通過", action: () => hallwayA('standby') }
+        ]);
+    }
+
+    function hallwayA(choice) {
+        if(choice === 'reroute') {
+            setScene("執行：Tactical Reroute", "多花了 2 分鐘，但碰撞機率完美降為 0%。", "演算結果：MP 損耗 0。");
+        } else if(choice === 'wall') {
+            updateMP(-5);
+            setScene("執行：Wall-Hugger Mode", "你專注控制肌肉縮小了碰撞面積，成功閃避。", "演算結果：MP -5 (精神專注消耗)。");
+        } else {
+            updateMP(5);
+            setScene("執行：Stand-by Protection", "對方吵鬧地走過去了，路徑現在非常通暢。", "演算結果：MP 恢復 +5 (獲得喘息)。");
+        }
+        setTimeout(() => hallwayB_Trigger(), 2000);
+    }
+
+    function hallwayB_Trigger() {
+        setScene("警告：突發衝突事件", "對方突然轉向對你大喊：「喂！擋路啦！」<br>請選擇你的語言回報指令：");
+        renderButtons([
+            { text: "【邏輯糾正】「公共空間佔有率未達 30%...」", action: () => hallwayB('logic') },
+            { text: "【跳針唱片法】語氣平淡如機器人：「喔，是喔。」", action: () => hallwayB('broken') },
+            { text: "【道歉偽裝】不看對方，低頭說「借過」快速閃開", action: () => hallwayB('camo') },
+            { text: "【執行極端計畫】解除限制進行反擊", danger: true, action: () => hallwayD_Crash() }
+        ]);
+    }
+
+    function hallwayB(choice) {
+        if(choice === 'logic') {
+            updateMP(-30);
+            setScene("錯誤：邏輯演算法失效", "對手覺得你在挑釁，發動「伶牙俐齒」連擊。你陷入了無止盡的辯論漩渦。", "結果：MP -30，系統過熱。");
+        } else if(choice === 'broken') {
+            updateMP(-5);
+            setScene("防禦成功：對手失去興趣", "對方覺得你像石頭一樣無聊，翻了個白眼離開。", "結果：MP -5，有效降低損害。");
+        } else {
+            updateMP(-10);
+            setScene("隱身成功：脫離戰場", "雖然感覺有點委屈，但這是最快結束戰鬥的方式。", "結果：MP -10，快速止損。");
+        }
+        setTimeout(() => hallwayC_Trigger(), 2500);
+    }
+
+    function hallwayC_Trigger() {
+        setScene("極限生存模式：物理接觸風險", "對方在擦身而過時故意伸手推了你一把。這是不友善的物理訊號。請執行緊急 SOP：");
+        renderButtons([
+            { text: "【緊急靜默】不還手、不對視，啟動呼吸法", action: () => hallwayC('silence') },
+            { text: "【大腦存檔】默念時間地點，將憤怒轉化為蒐證記憶", action: () => hallwayC('log') },
+            { text: "【召喚神獸】直接走向最近的辦公室或監視器下", action: () => hallwayC('summon') }
+        ]);
+    }
+
+    function hallwayC(choice) {
+        let msg = "";
+        if(choice === 'silence') { updateMP(0); msg = "成功避免事態升級，保持了「無辜受害者」的影像數據。"; }
+        else if(choice === 'log') { updateMP(10); msg = "將情緒轉化為數據任務，MP 穩定度提升。"; }
+        else { updateMP(5); msg = "強制中斷了對方的攻擊流程，危機解除。"; }
+        
+        setScene("任務結算", "你成功抵達了目的地。", msg);
+        setTimeout(() => showEnding(), 2000);
+    }
+
+    function hallwayD_Crash() {
+        updateMP(-100);
+        setScene("！！！系統嚴重崩潰！！！", "執行極端計畫中...<br>🔍 偵測到：監視器、鄰近證人、DNA 採集技術。<br>📉 預期演算結果：學籍永久註銷、監獄地圖解鎖、父母 MP 歸零。", "系統評價：這是一個「最高成本、最低效益」的失敗策略。");
+        renderButtons([{ text: "⚠️ 強制重啟系統 (讀取存檔)", action: () => resetGame() }]);
+    }
+
+    // ==========================================
+    // 模組 B：午餐平衡戰 (新內容)
+    // ==========================================
+    function startLunchScenario() {
+        updateMP(0);
+        setScene("載入場景：混亂的午餐時間", "環境參數：教室充滿飯菜味、高分貝噪音、同學拿著餐具無序移動。<br>任務目標：完成進食與清潔，將 MP 耗損降至最低。");
+        setTimeout(() => lunchA_Queue(), 2500);
+    }
+
+    function lunchA_Queue() {
+        setScene("階段一：盛飯排隊", "大家起身領餐，「噪音龍捲風」就在你附近。感官警戒區受到威脅。");
+        renderButtons([
+            { text: "【緩衝空間法】故意與前方留出 1.5 個手臂距離", action: () => lunchB_Eating('buffer') },
+            { text: "【最後領餐策略】等大部隊都坐好後，再起身領餐", action: () => lunchB_Eating('late') }
+        ]);
+    }
+
+    function lunchB_Eating(queueStrategy) {
+        let cons = "";
+        if(queueStrategy === 'buffer') {
+            updateMP(5);
+            cons = "雖然被後面的人催促，但成功確保了前方空間，減少了意外肢體接觸。MP +5。";
+        } else {
+            updateMP(10);
+            cons = "菜色可能少了點，但領餐路徑完全清空。衝突機率降為 0%。MP +10。";
+        }
+        setScene("階段二：用餐過程 (執行中)", "她現在在隔壁桌大聲說笑，你感到聽覺過載。請啟動感官防禦：", cons);
+        
+        renderButtons([
+            { text: "【視覺隧道】專注觀察米飯紋理，進行「食物分析實驗」", action: () => lunchC_Washing('visual') },
+            { text: "【聽覺護盾】心裡默哼喜歡的樂曲，將她的聲音過濾為背景雜訊", action: () => lunchC_Washing('sonic') },
+            { text: "【安靜撤離】(MP不足時) 端餐盤換到角落位置", action: () => lunchC_Washing('retreat') }
+        ]);
+    }
+
+    function lunchC_Washing(eatStrategy) {
+        if(eatStrategy === 'retreat') {
+            updateMP(5);
+            lunchFlags.energySaved = true;
+        }
+
+        setScene("階段三：狹路相逢對抗戰", "來到洗手台，發現她正在那裡，這是高風險互動熱點。");
+        renderButtons([
+            { text: "【戰術撤退】轉身回座位整理抽屜，3 分鐘後再來", action: () => finishLunch('retake') },
+            { text: "【無表情清潔】硬著頭皮去洗，動作加速，眼睛盯著水流", action: () => lunchC_Conflict() }
+        ]);
+    }
+    
+    function lunchC_Conflict() {
+        setScene("警告：遭受攻擊", "她故意甩動手上的水，水花噴到了你的臉上和制服上！系統偵測到怒氣值飆升。");
+        renderButtons([
+            { text: "【錯誤反應】大聲指責她：「妳在幹什麼！」", danger: true, action: () => lunch_BadEnd() },
+            { text: "【H2O 理論】擦乾水，心想：「這只是液體 H2O，不具備攻擊力。」", action: () => finishLunch('stoic') },
+            { text: "【強制系統重啟】喝一口冰水冷靜喉嚨，直接離開現場去找老師", action: () => finishLunch('reboot') }
+        ]);
+    }
+    
+    function lunch_BadEnd() {
+        updateMP(-50);
+        setScene("演算法失敗：引發騷動", "你的指責引發了她更大的回擊與嘲笑，午餐時間在混亂與高分貝爭吵中結束。", "結果：MP 大幅損耗，下午課程將難以專注。");
+        renderButtons([{ text: "重新載入模組", action: () => startLunchScenario() }]);
+    }
+
+    function finishLunch(washStrategy) {
+        let cons = "";
+        if(washStrategy === 'retake') {
+            cons = "最高階的生存技術。多走了幾步路，但成功避開了最危險的物理碰撞風險。";
+            lunchFlags.stealthWash = true;
+        } else if (washStrategy === 'stoic') {
+            updateMP(5);
+            cons = "你的無反應讓她覺得無趣。你成功守住了情緒邊界。";
+            lunchFlags.stoic = true;
+        } else if (washStrategy === 'reboot') {
+            cons = "你成功在系統過熱前進行了強制冷卻，並尋求了外部協助。";
+        }
+        
+        setScene("午餐任務結算", "你完成了進食與清潔任務。", cons);
+        setTimeout(() => showLunchEnding(), 2500);
+    }
+
+    // ==========================================
+    // 通用結算系統
+    // ==========================================
+    function showEnding() {
+        let rank = mp >= 90 ? "S (社交大師)" : (mp >= 70 ? "A (冷靜處理者)" : "B (能量耗損者)");
+        setScene("模擬結束：數據報告", `最終 MP 剩餘：${mp} / 100 <br>系統評等：<span style="color:var(--neon-purple)">${rank}</span>`, "建議：將今日成功保留的精神能量，投入你喜歡的研究項目中。");
+        renderButtons([{ text: "返回主選單", menu: true, action: () => resetGame() }]);
+    }
+
+    function showLunchEnding() {
+        let achievementsHtml = "";
+        if(lunchFlags.energySaved) achievementsHtml += '<span class="achievement-item">🏆 省電大師 (成功換位避險)</span>';
+        if(lunchFlags.stealthWash) achievementsHtml += '<span class="achievement-item">👻 透明人 (完美迴避洗手台衝突)</span>';
+        if(lunchFlags.stoic) achievementsHtml += '<span class="achievement-item">🗿 堅毅防禦 (視挑釁為無物)</span>';
+        if(mp >= 80) achievementsHtml += '<span class="achievement-item">🍱 營養專家 (高 MP 完成用餐)</span>';
+
+        if(achievementsHtml === "") achievementsHtml = '<span class="achievement-item" style="color:#aaa; border-color:#555;">本次未獲得特殊成就</span>';
+
+        achievementArea.innerHTML = '<div style="margin-bottom:10px; color:var(--neon-green);">【 本次成就解鎖 】</div>' + achievementsHtml;
+        achievementArea.innerHTML += `
+            <div class="counselor-note">
+                <strong>[ 輔導室訊息摘要 ]</strong><br>
+                午餐時間是你的「能量補給站」。那個女生就像一隻想偷你飯吃的烏鴉。如果你去追烏鴉，飯就會涼了。不管她怎麼叫，守住你的飯、守住你的心情，你就贏了。
+            </div>
+        `;
+        achievementArea.style.display = "block";
+
+        setScene("午餐任務完成：結算報告", `最終 MP 剩餘：${mp} / 100`);
+        consText.style.display = "none"; // 隱藏通用後果欄位，使用專屬成就區
+        
+        renderButtons([{ text: "返回主選單", menu: true, action: () => resetGame() }]);
+    }
+
+</script>
+</body>
+</html>
